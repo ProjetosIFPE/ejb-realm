@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<auth-realm classname="com.softwarecorporativo.realm.AccessRealm" name="accessRealm">
+    <property name="jta-data-source" value="jdbc/Monitoria"></property>
+    <property name="jaas-context" value="accessRealm"></property>
+    <property name="charset" value="UTF-8"></property>
+    <property name="hash-algorithm" value="SHA-256"></property>
+</auth-realm>
