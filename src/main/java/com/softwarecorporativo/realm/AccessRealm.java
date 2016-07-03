@@ -12,12 +12,16 @@ import com.sun.enterprise.security.auth.realm.InvalidOperationException;
 import com.sun.enterprise.security.auth.realm.NoSuchRealmException;
 import com.sun.enterprise.security.auth.realm.NoSuchUserException;
 import com.sun.enterprise.security.common.Util;
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
@@ -34,12 +38,15 @@ import org.glassfish.hk2.utilities.BuilderHelper;
 public class AccessRealm extends AppservRealm {
 
     private static final String JTA_DATA_SOURCE = "jta-data-source";
+    private static final String AUTHENTICATION_DATA_PROPS = "authentication-data-props";
     private static final String HASH_ALGORITHM = "hash-algorithm";
     private static final String GROUPS_SQL_QUERY = "groups-sql-query";
     private static final String PASSWORD_SQL_QUERY = "password-sql-query";
     private static final String CHARSET = "charset";
 
     private DataSource dataSource;
+
+    private Properties authenticationData;
 
     @Override
     protected void init(Properties properties) throws BadRealmException, NoSuchRealmException {
@@ -49,6 +56,7 @@ public class AccessRealm extends AppservRealm {
         setProperty(PASSWORD_SQL_QUERY, properties.getProperty(PASSWORD_SQL_QUERY));
         setProperty(GROUPS_SQL_QUERY, properties.getProperty(GROUPS_SQL_QUERY));
         setProperty(CHARSET, properties.getProperty(CHARSET));
+        setProperty(AUTHENTICATION_DATA_PROPS, properties.getProperty(AUTHENTICATION_DATA_PROPS));
     }
 
     @Override
@@ -63,7 +71,7 @@ public class AccessRealm extends AppservRealm {
         PreparedStatement stmt = null;
         ResultSet rs = null;
         boolean result = true;
-
+        authenticationData = getAuthenticationData();
         try {
             conn = getConnection();
             stmt = conn.prepareStatement(getPasswordSqlQuery());
@@ -72,8 +80,9 @@ public class AccessRealm extends AppservRealm {
 
             if (rs.next()) {
                 String passwd = rs.getString(1);
-
-                if (passwd == null || !passwd.equals(password)) {
+                System.out.println("VAZIO ?: " + authenticationData.size());
+                String salt = authenticationData.getProperty(username);
+                if (passwd == null || !passwd.equals(getHash(salt, password))) {
                     result = false;
                 }
             } else {
@@ -101,7 +110,30 @@ public class AccessRealm extends AppservRealm {
         } catch (SQLException | NamingException e) {
             throw new RuntimeException(e);
         }
+    }
 
+    private Properties getAuthenticationData() {
+        try {
+            synchronized (this) {       
+                    ActiveDescriptor<ConnectorRuntime> cr = (ActiveDescriptor<ConnectorRuntime>) Util.getDefaultHabitat().getBestDescriptor(BuilderHelper.createContractFilter(ConnectorRuntime.class.getName()));
+                    ConnectorRuntime connectorRuntime = Util.getDefaultHabitat().getServiceHandle(cr).getService();
+                    authenticationData = (Properties) connectorRuntime.lookupNonTxResource(getAuthenticationDataProps(), false);
+            }
+            return authenticationData;
+        } catch (NamingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getHash(String salt, String senha) {
+        try {
+            String passwd = salt + senha;
+            MessageDigest digest = MessageDigest.getInstance(getHashAlgorithm());
+            digest.update(passwd.getBytes(Charset.forName(getCharset())));
+            return Base64.getEncoder().encodeToString(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public List<String> getGroupList(String username) {
@@ -173,6 +205,10 @@ public class AccessRealm extends AppservRealm {
 
     public String getPasswordSqlQuery() {
         return super.getProperty(PASSWORD_SQL_QUERY);
+    }
+
+    public String getAuthenticationDataProps() {
+        return super.getProperty(AUTHENTICATION_DATA_PROPS);
     }
 
 }
